@@ -1,7 +1,25 @@
 --// Universal Hub (Fluent-Custom)
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/Hund335/Fluent-Custom/main/Fluent.lua"))()
-local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
-local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+print("[RSHub] starting...")
+
+local function safeLoad(name, url)
+    local ok, result = pcall(function()
+        return loadstring(game:HttpGet(url))()
+    end)
+    if not ok or not result then
+        warn("[RSHub] could not load " .. name .. ": " .. tostring(result))
+        return nil
+    end
+    print("[RSHub] loaded " .. name)
+    return result
+end
+
+local Fluent = safeLoad("Fluent", "https://raw.githubusercontent.com/Hund335/Fluent-Custom/main/Fluent.lua")
+local SaveManager = safeLoad("SaveManager", "https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua")
+local InterfaceManager = safeLoad("InterfaceManager", "https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua")
+if not (Fluent and SaveManager and InterfaceManager) then
+    warn("[RSHub] stopped: a library failed to load (see messages above)")
+    return
+end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -482,6 +500,74 @@ task.spawn(function()
 end)
 
 ----------------------------------------------------------------------
+-- SOCCER: Diagnose (copies a report so the script can be adapted to the game)
+----------------------------------------------------------------------
+local DebugSec = Tabs.Soccer:AddSection("Debug")
+
+local function buildReport()
+    local RS = game:GetService("ReplicatedStorage")
+    local out = {}
+    local function add(s) table.insert(out, tostring(s)) end
+
+    add("PlaceId: " .. game.PlaceId)
+    add("Executor: " .. (identifyexecutor and tostring(identifyexecutor()) or "?"))
+    add("firetouchinterest: " .. tostring(hasTouch))
+
+    local char = getChar()
+    add("Character: " .. (char and char:GetFullName() or "nil"))
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        add("Humanoid: " .. (hum and string.format("WalkSpeed=%s JumpPower=%s UseJumpPower=%s State=%s",
+            hum.WalkSpeed, hum.JumpPower, tostring(hum.UseJumpPower), tostring(hum:GetState())) or "nil"))
+        add("HumanoidRootPart: " .. tostring(getRoot() ~= nil))
+        local kids = {}
+        for _, c in ipairs(char:GetChildren()) do table.insert(kids, c.Name .. "(" .. c.ClassName .. ")") end
+        add("Char children: " .. table.concat(kids, ", "))
+    end
+
+    local ball = getBall()
+    add("Detected ball: " .. (ball and ball:GetFullName() or "nil"))
+    add("-- Parts with 'ball' in name:")
+    local n = 0
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("BasePart") and d.Name:lower():find("ball") then
+            n += 1
+            if n <= 15 then add("  " .. d:GetFullName() .. " size=" .. tostring(d.Size)) end
+        end
+    end
+    add("  total: " .. n)
+
+    add("-- Remotes in ReplicatedStorage:")
+    local r = 0
+    for _, d in ipairs(RS:GetDescendants()) do
+        if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
+            r += 1
+            if r <= 30 then add("  " .. d:GetFullName()) end
+        end
+    end
+
+    add("-- Workspace top level:")
+    for _, c in ipairs(workspace:GetChildren()) do add("  " .. c.Name .. " (" .. c.ClassName .. ")") end
+    return table.concat(out, "\n")
+end
+
+DebugSec:AddButton({
+    Title = "Copy Diagnose Report",
+    Description = "Copies game info to the clipboard (also printed in F9)",
+    Callback = function()
+        local ok, report = pcall(buildReport)
+        if not ok then report = "Report error: " .. tostring(report) end
+        print(report)
+        local copied = setclipboard and pcall(setclipboard, report)
+        Fluent:Notify({
+            Title = "Diagnose",
+            Content = copied and "Report copied. Paste it in the chat." or "Clipboard unavailable. Open F9 to copy it.",
+            Duration = 6,
+        })
+    end,
+})
+
+----------------------------------------------------------------------
 -- Player tab: Unload button
 ----------------------------------------------------------------------
 Tabs.Player:AddButton({
@@ -535,3 +621,4 @@ SaveManager:BuildConfigSection(Tabs.Settings)
 Window:SelectTab(1)
 Fluent:Notify({ Title = "Ragdoll Soccer Hub", Content = "Loaded. LeftCtrl = hide/show.", Duration = 5 })
 SaveManager:LoadAutoloadConfig()
+print("[RSHub] ready")
